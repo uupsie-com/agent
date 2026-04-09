@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/uupsie-com/agent/internal/config"
+	"github.com/uupsie-com/agent/internal/discovery"
 	"github.com/uupsie-com/agent/internal/reporter"
 	"github.com/uupsie-com/agent/internal/watcher"
 )
@@ -24,12 +26,23 @@ func main() {
 
 	log.Printf("agent starting — reporting to %s", apiURL)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Config client
 	cfgClient := config.NewClient(apiURL, apiToken)
 
 	// Reporter (sends check results + heartbeats)
 	rep := reporter.New(apiURL, apiToken)
 	rep.StartHeartbeat(30 * time.Second)
+
+	// Discovery (reports cluster inventory to API)
+	disc, err := discovery.New(apiURL, apiToken)
+	if err != nil {
+		log.Printf("[discovery] failed to initialize: %v — inventory reporting disabled", err)
+	} else {
+		disc.Start(ctx, 5*time.Minute)
+	}
 
 	// Watcher manager (Kubernetes informers)
 	mgr, err := watcher.NewManager(rep)
@@ -66,5 +79,6 @@ func main() {
 	<-sig
 
 	log.Println("shutting down...")
+	cancel()
 	mgr.Stop()
 }
