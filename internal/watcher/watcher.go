@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"sync"
@@ -19,9 +20,10 @@ type Manager struct {
 	clientset *kubernetes.Clientset
 	reporter  *reporter.Reporter
 
-	mu       sync.Mutex
-	monitors map[string]config.Monitor // keyed by monitor ID
-	stopChs  map[string]chan struct{}   // keyed by namespace
+	mu          sync.Mutex
+	monitors    map[string]config.Monitor        // keyed by monitor ID
+	stopChs     map[string]chan struct{}           // keyed by namespace (informers)
+	serviceCtxs map[string]context.CancelFunc     // keyed by monitor ID (service probes)
 }
 
 func NewManager(rep *reporter.Reporter) (*Manager, error) {
@@ -36,10 +38,11 @@ func NewManager(rep *reporter.Reporter) (*Manager, error) {
 	}
 
 	return &Manager{
-		clientset: clientset,
-		reporter:  rep,
-		monitors:  make(map[string]config.Monitor),
-		stopChs:   make(map[string]chan struct{}),
+		clientset:   clientset,
+		reporter:    rep,
+		monitors:    make(map[string]config.Monitor),
+		stopChs:     make(map[string]chan struct{}),
+		serviceCtxs: make(map[string]context.CancelFunc),
 	}, nil
 }
 
@@ -48,11 +51,17 @@ func (m *Manager) Reconcile(monitors []config.Monitor) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Build new monitor map and required namespaces
+	// Separate monitors into informer-based and probe-based
 	newMonitors := make(map[string]config.Monitor)
 	needNamespaces := make(map[string]bool)
+	newServiceMonitors := make(map[string]config.Monitor)
+
 	for _, mon := range monitors {
 		newMonitors[mon.ID] = mon
+		if mon.Type == "k8s_service" {
+			newServiceMonitors[mon.ID] = mon
+			continue
+		}
 		ns := mon.Config["namespace"]
 		if ns == "" {
 			ns = "default"
@@ -60,6 +69,8 @@ func (m *Manager) Reconcile(monitors []config.Monitor) {
 		needNamespaces[ns] = true
 	}
 	m.monitors = newMonitors
+
+	// --- Informer lifecycle (pod, deployment, node) ---
 
 	// Stop informers for namespaces no longer needed
 	for ns, stopCh := range m.stopChs {
@@ -80,6 +91,26 @@ func (m *Manager) Reconcile(monitors []config.Monitor) {
 		m.stopChs[ns] = stopCh
 		m.startInformers(ns, stopCh)
 	}
+
+	// --- Service probe lifecycle ---
+
+	// Stop probes for removed service monitors
+	for id, cancel := range m.serviceCtxs {
+		if _, exists := newServiceMonitors[id]; !exists {
+			cancel()
+			delete(m.serviceCtxs, id)
+		}
+	}
+
+	// Start probes for new service monitors
+	for id, mon := range newServiceMonitors {
+		if _, exists := m.serviceCtxs[id]; exists {
+			continue
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		m.serviceCtxs[id] = cancel
+		go m.runServiceCheck(ctx, mon)
+	}
 }
 
 func (m *Manager) startInformers(namespace string, stopCh chan struct{}) {
@@ -89,15 +120,11 @@ func (m *Manager) startInformers(namespace string, stopCh chan struct{}) {
 		informers.WithNamespace(namespace),
 	)
 
-	// Start all relevant informers — handlers evaluate health on events
 	podInformer := factory.Core().V1().Pods().Informer()
 	podInformer.AddEventHandler(newPodHandler(m))
 
 	deployInformer := factory.Apps().V1().Deployments().Informer()
 	deployInformer.AddEventHandler(newDeploymentHandler(m))
-
-	serviceInformer := factory.Core().V1().Services().Informer()
-	serviceInformer.AddEventHandler(newServiceHandler(m))
 
 	nodeInformer := factory.Core().V1().Nodes().Informer()
 	nodeInformer.AddEventHandler(newNodeHandler(m))
@@ -105,7 +132,7 @@ func (m *Manager) startInformers(namespace string, stopCh chan struct{}) {
 	factory.Start(stopCh)
 }
 
-// findMonitor returns monitors matching the given type, namespace, and resource name.
+// findMonitors returns monitors matching the given type, namespace, and resource name.
 func (m *Manager) findMonitors(monitorType, namespace, name string) []config.Monitor {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -136,7 +163,7 @@ func (m *Manager) reportStatus(monitorID, status string, errMsg *string) {
 	})
 }
 
-// Stop shuts down all informers.
+// Stop shuts down all informers and service probes.
 func (m *Manager) Stop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -146,4 +173,10 @@ func (m *Manager) Stop() {
 		close(stopCh)
 	}
 	m.stopChs = make(map[string]chan struct{})
+
+	for id, cancel := range m.serviceCtxs {
+		log.Printf("[watcher] stopping service probe for monitor %s", id)
+		cancel()
+	}
+	m.serviceCtxs = make(map[string]context.CancelFunc)
 }

@@ -1,44 +1,82 @@
 package watcher
 
 import (
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/tools/cache"
+	"context"
+	"fmt"
+	"log"
+	"net"
+	"time"
+
+	"github.com/uupsie-com/agent/internal/config"
+	"github.com/uupsie-com/agent/internal/reporter"
 )
 
-func newServiceHandler(m *Manager) cache.ResourceEventHandlerFuncs {
-	evaluate := func(obj interface{}) {
-		svc, ok := obj.(*corev1.Service)
-		if !ok {
-			return
-		}
-
-		monitors := m.findMonitors("k8s_service", svc.Namespace, svc.Name)
-		if len(monitors) == 0 {
-			return
-		}
-
-		// For services we report "up" when the service exists.
-		// Endpoint health is evaluated via the endpoints informer
-		// which fires when backing pods change. For now, service
-		// existence = up.
-		for _, mon := range monitors {
-			m.reportStatus(mon.ID, "up", nil)
-		}
+// runServiceCheck actively probes a K8s service via TCP at the configured interval.
+func (m *Manager) runServiceCheck(ctx context.Context, mon config.Monitor) {
+	namespace := mon.Config["namespace"]
+	if namespace == "" {
+		namespace = "default"
+	}
+	name := mon.Config["name"]
+	port := mon.Config["port"]
+	if port == "" {
+		port = "80"
 	}
 
-	return cache.ResourceEventHandlerFuncs{
-		AddFunc:    evaluate,
-		UpdateFunc: func(_, newObj interface{}) { evaluate(newObj) },
-		DeleteFunc: func(obj interface{}) {
-			svc, ok := obj.(*corev1.Service)
-			if !ok {
-				return
-			}
-			monitors := m.findMonitors("k8s_service", svc.Namespace, svc.Name)
-			msg := "service deleted"
-			for _, mon := range monitors {
-				m.reportStatus(mon.ID, "down", &msg)
-			}
-		},
+	address := fmt.Sprintf("%s.%s.svc.cluster.local:%s", name, namespace, port)
+
+	interval := 60 * time.Second
+	if mon.IntervalSeconds > 0 {
+		interval = time.Duration(mon.IntervalSeconds) * time.Second
 	}
+
+	timeout := 10 * time.Second
+	if mon.TimeoutSeconds > 0 {
+		timeout = time.Duration(mon.TimeoutSeconds) * time.Second
+	}
+
+	log.Printf("[service] starting TCP probe for %s (every %s, timeout %s)", address, interval, timeout)
+
+	// Check immediately on start
+	m.probeService(mon.ID, address, timeout)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("[service] stopping TCP probe for %s", address)
+			return
+		case <-ticker.C:
+			m.probeService(mon.ID, address, timeout)
+		}
+	}
+}
+
+func (m *Manager) probeService(monitorID, address string, timeout time.Duration) {
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", address, timeout)
+	responseTime := int(time.Since(start).Milliseconds())
+
+	if err != nil {
+		errMsg := fmt.Sprintf("TCP connect to %s failed: %v", address, err)
+		log.Printf("[service] %s", errMsg)
+		m.reporter.Report(reporter.CheckResult{
+			MonitorID:      monitorID,
+			Status:         "down",
+			ResponseTimeMs: &responseTime,
+			ErrorMessage:   &errMsg,
+			CheckedAt:      time.Now().UTC().Format(time.RFC3339),
+		})
+		return
+	}
+	conn.Close()
+
+	m.reporter.Report(reporter.CheckResult{
+		MonitorID:      monitorID,
+		Status:         "up",
+		ResponseTimeMs: &responseTime,
+		CheckedAt:      time.Now().UTC().Format(time.RFC3339),
+	})
 }

@@ -9,12 +9,14 @@ import (
 )
 
 type Monitor struct {
-	ID        string            `json:"id"`
-	Type      string            `json:"type"`
-	Name      string            `json:"name"`
-	Config    map[string]string `json:"config"`
-	Namespace string            `json:"namespace"`
-	Resource  string            `json:"resource"`
+	ID              string            `json:"id"`
+	Type            string            `json:"type"`
+	Name            string            `json:"name"`
+	Config          map[string]string `json:"config"`
+	Namespace       string            `json:"namespace"`
+	Resource        string            `json:"resource"`
+	IntervalSeconds int               `json:"interval_seconds"`
+	TimeoutSeconds  int               `json:"timeout_seconds"`
 }
 
 type AgentConfig struct {
