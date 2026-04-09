@@ -13,12 +13,12 @@ import (
 
 // runServiceCheck actively probes a K8s service via TCP at the configured interval.
 func (m *Manager) runServiceCheck(ctx context.Context, mon config.Monitor) {
-	namespace := mon.Config["namespace"]
+	namespace := mon.ConfigString("namespace")
 	if namespace == "" {
 		namespace = "default"
 	}
-	name := mon.Config["name"]
-	port := mon.Config["port"]
+	name := mon.ConfigString("name")
+	port := mon.ConfigString("port")
 	if port == "" {
 		port = "80"
 	}

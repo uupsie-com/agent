@@ -12,13 +12,27 @@ type Monitor struct {
 	ID              string            `json:"id"`
 	Type            string            `json:"type"`
 	Name            string            `json:"name"`
-	Config          map[string]string `json:"config"`
+	Config          map[string]any    `json:"config"`
 	Namespace       string            `json:"namespace"`
 	Resource        string            `json:"resource"`
 	IntervalSeconds int               `json:"interval_seconds"`
 	TimeoutSeconds  int               `json:"timeout_seconds"`
 }
-
+// ConfigString returns a config value as a string, or empty string if missing/wrong type.
+func (m Monitor) ConfigString(key string) string {
+	v, ok := m.Config[key]
+	if !ok {
+		return ""
+	}
+	switch s := v.(type) {
+	case string:
+		return s
+	case float64:
+		return fmt.Sprintf("%v", s)
+	default:
+		return fmt.Sprintf("%v", s)
+	}
+}
 type AgentConfig struct {
 	Monitors []Monitor `json:"monitors"`
 }

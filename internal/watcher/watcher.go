@@ -62,7 +62,7 @@ func (m *Manager) Reconcile(monitors []config.Monitor) {
 			newServiceMonitors[mon.ID] = mon
 			continue
 		}
-		ns := mon.Config["namespace"]
+		ns := mon.ConfigString("namespace")
 		if ns == "" {
 			ns = "default"
 		}
@@ -142,11 +142,11 @@ func (m *Manager) findMonitors(monitorType, namespace, name string) []config.Mon
 		if mon.Type != monitorType {
 			continue
 		}
-		monNs := mon.Config["namespace"]
+		monNs := mon.ConfigString("namespace")
 		if monNs == "" {
 			monNs = "default"
 		}
-		monName := mon.Config["name"]
+		monName := mon.ConfigString("name")
 		if monNs == namespace && monName == name {
 			matches = append(matches, mon)
 		}
