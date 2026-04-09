@@ -68,10 +68,6 @@ func (m *Manager) getEndpointCounts(ctx context.Context, namespace, name string)
 }
 
 func (m *Manager) probeService(ctx context.Context, monitorID, namespace, name, address string, timeout time.Duration) {
-	// Resolve DNS separately so we only measure the TCP handshake
-	host, port, _ := net.SplitHostPort(address)
-	ips, err := net.LookupHost(host)
-
 	// Get endpoint counts regardless of probe result
 	readyPods, totalPods := m.getEndpointCounts(ctx, namespace, name)
 	metadata := map[string]any{
@@ -79,25 +75,12 @@ func (m *Manager) probeService(ctx context.Context, monitorID, namespace, name, 
 		"total_endpoints": totalPods,
 	}
 
-	if err != nil {
-		errMsg := fmt.Sprintf("DNS resolve %s failed: %v", host, err)
-		log.Printf("[service] %s", errMsg)
-		zero := 0
-		m.reporter.Report(reporter.CheckResult{
-			MonitorID:      monitorID,
-			Status:         "down",
-			ResponseTimeMs: &zero,
-			ErrorMessage:   &errMsg,
-			Metadata:       metadata,
-			CheckedAt:      time.Now().UTC().Format(time.RFC3339),
-		})
-		return
-	}
-
-	target := net.JoinHostPort(ips[0], port)
 	start := time.Now()
-	conn, err := net.DialTimeout("tcp", target, timeout)
+	conn, err := net.DialTimeout("tcp", address, timeout)
 	responseTime := int(time.Since(start).Milliseconds())
+	if responseTime == 0 {
+		responseTime = 1 // sub-ms connects report as 1ms minimum
+	}
 
 	if err != nil {
 		errMsg := fmt.Sprintf("TCP connect to %s failed: %v", address, err)
