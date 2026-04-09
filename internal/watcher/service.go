@@ -9,6 +9,7 @@ import (
 
 	"github.com/uupsie-com/agent/internal/config"
 	"github.com/uupsie-com/agent/internal/reporter"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // runServiceCheck actively probes a K8s service via TCP at the configured interval.
@@ -38,7 +39,7 @@ func (m *Manager) runServiceCheck(ctx context.Context, mon config.Monitor) {
 	log.Printf("[service] starting TCP probe for %s (every %s, timeout %s)", address, interval, timeout)
 
 	// Check immediately on start
-	m.probeService(mon.ID, address, timeout)
+	m.probeService(ctx, mon.ID, namespace, name, address, timeout)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -49,15 +50,35 @@ func (m *Manager) runServiceCheck(ctx context.Context, mon config.Monitor) {
 			log.Printf("[service] stopping TCP probe for %s", address)
 			return
 		case <-ticker.C:
-			m.probeService(mon.ID, address, timeout)
+			m.probeService(ctx, mon.ID, namespace, name, address, timeout)
 		}
 	}
 }
 
-func (m *Manager) probeService(monitorID, address string, timeout time.Duration) {
+func (m *Manager) getEndpointCounts(ctx context.Context, namespace, name string) (ready int, total int) {
+	endpoints, err := m.clientset.CoreV1().Endpoints(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return 0, 0
+	}
+	for _, subset := range endpoints.Subsets {
+		ready += len(subset.Addresses)
+		total += len(subset.Addresses) + len(subset.NotReadyAddresses)
+	}
+	return ready, total
+}
+
+func (m *Manager) probeService(ctx context.Context, monitorID, namespace, name, address string, timeout time.Duration) {
 	// Resolve DNS separately so we only measure the TCP handshake
 	host, port, _ := net.SplitHostPort(address)
 	ips, err := net.LookupHost(host)
+
+	// Get endpoint counts regardless of probe result
+	readyPods, totalPods := m.getEndpointCounts(ctx, namespace, name)
+	metadata := map[string]any{
+		"ready_endpoints": readyPods,
+		"total_endpoints": totalPods,
+	}
+
 	if err != nil {
 		errMsg := fmt.Sprintf("DNS resolve %s failed: %v", host, err)
 		log.Printf("[service] %s", errMsg)
@@ -67,6 +88,7 @@ func (m *Manager) probeService(monitorID, address string, timeout time.Duration)
 			Status:         "down",
 			ResponseTimeMs: &zero,
 			ErrorMessage:   &errMsg,
+			Metadata:       metadata,
 			CheckedAt:      time.Now().UTC().Format(time.RFC3339),
 		})
 		return
@@ -85,6 +107,7 @@ func (m *Manager) probeService(monitorID, address string, timeout time.Duration)
 			Status:         "down",
 			ResponseTimeMs: &responseTime,
 			ErrorMessage:   &errMsg,
+			Metadata:       metadata,
 			CheckedAt:      time.Now().UTC().Format(time.RFC3339),
 		})
 		return
@@ -95,6 +118,7 @@ func (m *Manager) probeService(monitorID, address string, timeout time.Duration)
 		MonitorID:      monitorID,
 		Status:         "up",
 		ResponseTimeMs: &responseTime,
+		Metadata:       metadata,
 		CheckedAt:      time.Now().UTC().Format(time.RFC3339),
 	})
 }
