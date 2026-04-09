@@ -1,5 +1,5 @@
 image:
-  repository: ghcr.io/uupsie/agent
+  repository: ghcr.io/uupsie-com/agent
   tag: latest
   pullPolicy: IfNotPresent
 

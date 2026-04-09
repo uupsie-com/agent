@@ -8,21 +8,21 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/uupsie/agent/internal/config"
-	"github.com/uupsie/agent/internal/reporter"
-	"github.com/uupsie/agent/internal/watcher"
+	"github.com/uupsie-com/agent/internal/config"
+	"github.com/uupsie-com/agent/internal/reporter"
+	"github.com/uupsie-com/agent/internal/watcher"
 )
 
 func main() {
-	apiURL := os.Getenv("UUPSIE_API_URL")
-	apiToken := os.Getenv("UUPSIE_API_TOKEN")
+	apiURL := os.Getenv("AGENT_API_URL")
+	apiToken := os.Getenv("AGENT_API_TOKEN")
 
 	if apiURL == "" || apiToken == "" {
-		fmt.Fprintln(os.Stderr, "UUPSIE_API_URL and UUPSIE_API_TOKEN must be set")
+		fmt.Fprintln(os.Stderr, "AGENT_API_URL and AGENT_API_TOKEN must be set")
 		os.Exit(1)
 	}
 
-	log.Printf("uupsie agent starting — reporting to %s", apiURL)
+	log.Printf("agent starting — reporting to %s", apiURL)
 
 	// Config client
 	cfgClient := config.NewClient(apiURL, apiToken)

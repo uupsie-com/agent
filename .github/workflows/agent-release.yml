@@ -11,7 +11,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: uupsie/agent
+  IMAGE_NAME: uupsie-com/agent
 
 jobs:
   docker:
@@ -65,14 +65,14 @@ jobs:
 
       - name: Update Chart.yaml version
         run: |
-          sed -i "s/^version:.*/version: ${{ steps.version.outputs.version }}/" helm/uupsie-agent/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.version.outputs.version }}\"/" helm/uupsie-agent/Chart.yaml
+          sed -i "s/^version:.*/version: ${{ steps.version.outputs.version }}/" helm/agent/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.version.outputs.version }}\"/" helm/agent/Chart.yaml
 
       - name: Package chart
-        run: helm package helm/uupsie-agent --destination .helm-out
+        run: helm package helm/agent --destination .helm-out
 
       - name: Push chart to GHCR
-        run: helm push .helm-out/uupsie-agent-${{ steps.version.outputs.version }}.tgz oci://${{ env.REGISTRY }}/uupsie/charts
+        run: helm push .helm-out/agent-${{ steps.version.outputs.version }}.tgz oci://${{ env.REGISTRY }}/uupsie-com/charts
 
   release:
     name: Create GitHub Release

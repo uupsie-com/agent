@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/uupsie/agent/internal/config"
-	"github.com/uupsie/agent/internal/reporter"
+	"github.com/uupsie-com/agent/internal/config"
+	"github.com/uupsie-com/agent/internal/reporter"
 
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"

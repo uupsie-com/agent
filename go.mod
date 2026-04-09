@@ -1,4 +1,4 @@
-module github.com/uupsie/agent
+module github.com/uupsie-com/agent
 
 go 1.22
 

@@ -3,7 +3,7 @@ kind: ClusterRoleBinding
 metadata:
   name: {{ .Release.Name }}
   labels:
-    app.kubernetes.io/name: uupsie-agent
+    app.kubernetes.io/name: agent
     app.kubernetes.io/instance: {{ .Release.Name }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io

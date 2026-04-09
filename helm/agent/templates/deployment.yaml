@@ -3,18 +3,18 @@ kind: Deployment
 metadata:
   name: {{ .Release.Name }}
   labels:
-    app.kubernetes.io/name: uupsie-agent
+    app.kubernetes.io/name: agent
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: uupsie-agent
+      app.kubernetes.io/name: agent
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: uupsie-agent
+        app.kubernetes.io/name: agent
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       serviceAccountName: {{ .Release.Name }}
@@ -23,9 +23,9 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
-            - name: UUPSIE_API_URL
+            - name: AGENT_API_URL
               value: {{ required "apiURL is required" .Values.apiURL | quote }}
-            - name: UUPSIE_API_TOKEN
+            - name: AGENT_API_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}
