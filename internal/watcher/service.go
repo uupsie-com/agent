@@ -55,8 +55,26 @@ func (m *Manager) runServiceCheck(ctx context.Context, mon config.Monitor) {
 }
 
 func (m *Manager) probeService(monitorID, address string, timeout time.Duration) {
+	// Resolve DNS separately so we only measure the TCP handshake
+	host, port, _ := net.SplitHostPort(address)
+	ips, err := net.LookupHost(host)
+	if err != nil {
+		errMsg := fmt.Sprintf("DNS resolve %s failed: %v", host, err)
+		log.Printf("[service] %s", errMsg)
+		zero := 0
+		m.reporter.Report(reporter.CheckResult{
+			MonitorID:      monitorID,
+			Status:         "down",
+			ResponseTimeMs: &zero,
+			ErrorMessage:   &errMsg,
+			CheckedAt:      time.Now().UTC().Format(time.RFC3339),
+		})
+		return
+	}
+
+	target := net.JoinHostPort(ips[0], port)
 	start := time.Now()
-	conn, err := net.DialTimeout("tcp", address, timeout)
+	conn, err := net.DialTimeout("tcp", target, timeout)
 	responseTime := int(time.Since(start).Milliseconds())
 
 	if err != nil {
