@@ -6,6 +6,8 @@ image:
 apiURL: ""
 apiToken: ""
 
+configRefreshInterval: "60s"
+
 resources:
   requests:
     cpu: 50m

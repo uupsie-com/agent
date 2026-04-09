@@ -26,6 +26,13 @@ func main() {
 
 	log.Printf("agent starting — reporting to %s", apiURL)
 
+	configInterval := 5 * time.Minute
+	if v := os.Getenv("AGENT_CONFIG_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			configInterval = d
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -41,7 +48,7 @@ func main() {
 	if err != nil {
 		log.Printf("[discovery] failed to initialize: %v — inventory reporting disabled", err)
 	} else {
-		disc.Start(ctx, 5*time.Minute)
+		disc.Start(ctx, configInterval)
 	}
 
 	// Watcher manager (Kubernetes informers)
@@ -60,7 +67,7 @@ func main() {
 
 	// Config refresh loop (every 5 minutes)
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		ticker := time.NewTicker(configInterval)
 		defer ticker.Stop()
 		for range ticker.C {
 			newCfg, err := cfgClient.FetchConfig()

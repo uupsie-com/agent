@@ -30,5 +30,7 @@ spec:
                 secretKeyRef:
                   name: {{ .Release.Name }}
                   key: api-token
+            - name: AGENT_CONFIG_INTERVAL
+              value: {{ .Values.configRefreshInterval | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
