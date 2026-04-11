@@ -12,12 +12,12 @@ import (
 )
 
 type CheckResult struct {
-	MonitorID      string  `json:"monitor_id"`
-	Status         string  `json:"status"`
-	ResponseTimeMs *int    `json:"response_time_ms"`
-	ErrorMessage   *string `json:"error_message"`
-	Metadata       any     `json:"metadata,omitempty"`
-	CheckedAt      string  `json:"checked_at"`
+	MonitorID      string   `json:"monitor_id"`
+	Status         string   `json:"status"`
+	ResponseTimeMs *float64 `json:"response_time_ms"`
+	ErrorMessage   *string  `json:"error_message"`
+	Metadata       any      `json:"metadata,omitempty"`
+	CheckedAt      string   `json:"checked_at"`
 }
 
 type Reporter struct {

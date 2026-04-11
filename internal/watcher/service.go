@@ -24,8 +24,6 @@ func (m *Manager) runServiceCheck(ctx context.Context, mon config.Monitor) {
 		port = "80"
 	}
 
-	address := fmt.Sprintf("%s.%s.svc.cluster.local:%s", name, namespace, port)
-
 	interval := 60 * time.Second
 	if mon.IntervalSeconds > 0 {
 		interval = time.Duration(mon.IntervalSeconds) * time.Second
@@ -36,10 +34,17 @@ func (m *Manager) runServiceCheck(ctx context.Context, mon config.Monitor) {
 		timeout = time.Duration(mon.TimeoutSeconds) * time.Second
 	}
 
-	log.Printf("[service] starting TCP probe for %s (every %s, timeout %s)", address, interval, timeout)
+	// Resolve ClusterIP once; re-resolve on failure
+	clusterIP := m.resolveClusterIP(ctx, namespace, name)
+	if clusterIP != "" {
+		log.Printf("[service] resolved %s/%s to ClusterIP %s", namespace, name, clusterIP)
+	}
+
+	logName := fmt.Sprintf("%s.%s:%s", name, namespace, port)
+	log.Printf("[service] starting TCP probe for %s (every %s, timeout %s)", logName, interval, timeout)
 
 	// Check immediately on start
-	m.probeService(ctx, mon.ID, namespace, name, address, timeout)
+	m.probeService(ctx, mon.ID, namespace, name, port, clusterIP, timeout)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -47,12 +52,25 @@ func (m *Manager) runServiceCheck(ctx context.Context, mon config.Monitor) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("[service] stopping TCP probe for %s", address)
+			log.Printf("[service] stopping TCP probe for %s", logName)
 			return
 		case <-ticker.C:
-			m.probeService(ctx, mon.ID, namespace, name, address, timeout)
+			m.probeService(ctx, mon.ID, namespace, name, port, clusterIP, timeout)
 		}
 	}
+}
+
+func (m *Manager) resolveClusterIP(ctx context.Context, namespace, name string) string {
+	svc, err := m.clientset.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		log.Printf("[service] failed to resolve ClusterIP for %s/%s: %v", namespace, name, err)
+		return ""
+	}
+	if svc.Spec.ClusterIP == "" || svc.Spec.ClusterIP == "None" {
+		log.Printf("[service] %s/%s is headless (no ClusterIP), falling back to DNS", namespace, name)
+		return ""
+	}
+	return svc.Spec.ClusterIP
 }
 
 func (m *Manager) getEndpointCounts(ctx context.Context, namespace, name string) (ready int, total int) {
@@ -67,7 +85,7 @@ func (m *Manager) getEndpointCounts(ctx context.Context, namespace, name string)
 	return ready, total
 }
 
-func (m *Manager) probeService(ctx context.Context, monitorID, namespace, name, address string, timeout time.Duration) {
+func (m *Manager) probeService(ctx context.Context, monitorID, namespace, name, port, clusterIP string, timeout time.Duration) {
 	// Get endpoint counts regardless of probe result
 	readyPods, totalPods := m.getEndpointCounts(ctx, namespace, name)
 	metadata := map[string]any{
@@ -75,15 +93,19 @@ func (m *Manager) probeService(ctx context.Context, monitorID, namespace, name, 
 		"total_endpoints": totalPods,
 	}
 
-	start := time.Now()
-	conn, err := net.DialTimeout("tcp", address, timeout)
-	responseTime := int(time.Since(start).Milliseconds())
-	if responseTime == 0 {
-		responseTime = 1 // sub-ms connects report as 1ms minimum
+	// Use ClusterIP if available, fall back to DNS
+	address := fmt.Sprintf("%s:%s", clusterIP, port)
+	if clusterIP == "" {
+		address = fmt.Sprintf("%s.%s.svc.cluster.local:%s", name, namespace, port)
 	}
 
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", address, timeout)
+	elapsed := time.Since(start)
+	responseTime := float64(elapsed.Microseconds()) / 1000.0 // sub-ms precision
+
 	if err != nil {
-		errMsg := fmt.Sprintf("TCP connect to %s failed: %v", address, err)
+		errMsg := fmt.Sprintf("TCP connect to %s/%s:%s failed: %v", namespace, name, port, err)
 		log.Printf("[service] %s", errMsg)
 		m.reporter.Report(reporter.CheckResult{
 			MonitorID:      monitorID,
